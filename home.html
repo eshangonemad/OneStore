@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OneStore</title>
+    <style>
+        @font-face {
+            font-family: 'Garet';
+            src: url(files/Garet-Book.ttf);
+        }
+        @font-face {
+            font-family: 'Product';
+            src: url(files/font.ttf);
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            width: 100%;
+            height: 100%;
+            background-color: #000000;
+            color: #ffffff;
+        }
+        body {
+            box-sizing: border-box;
+            display: flex;
+            font-family: garet;
+        }
+        nav {
+            height: 100%;
+            width: 21%;
+            background-color: #1b1b1b;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 0;
+        }
+        hr {
+            width: 100%;
+            border: 1px solid #ffffff;
+            box-sizing: border-box;
+            margin-top: -1px;
+        }
+        button {
+            width: 95%;
+            height: 60px;
+            background: linear-gradient(#000000, #000000) padding-box,
+                linear-gradient(to bottom, rgb(100, 100, 100), rgba(46, 46, 46, 0.575), rgba(0, 0, 0, 0)) border-box;
+            border-radius: 10px;
+            color: #ffffff;
+            text-align: center;
+            border: 2px solid transparent;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 20px;
+            margin-block: 2px;
+            cursor: pointer;
+        }
+        .content {
+            flex-grow: 1;
+            padding: 20px;
+            background-color: #000000;
+        }
+        .file-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 20px;
+            padding: 20px;
+        }
+        .file-item {
+            background: #1b1b1b;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .file-item:hover {
+            transform: scale(1.05);
+            background: #2b2b2b;
+        }
+        .path-bar {
+            background: #1b1b1b;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .path-segment {
+            color: #ffffff;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .path-segment:hover {
+            text-decoration: underline;
+        }
+        .vault-login {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+        }
+        .vault-input {
+            background: #1b1b1b;
+            border: none;
+            padding: 10px;
+            margin: 10px;
+            color: white;
+            border-radius: 5px;
+            font-size: 18px;
+            text-align: center;
+        }
+        .upload-area {
+            border: 2px dashed #3b3b3b;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        .upload-area.dragover {
+            background: #2b2b2b;
+            border-color: #ffffff;
+        }
+        .upload-progress {
+            width: 100%;
+            height: 4px;
+            background: #1b1b1b;
+            margin-top: 10px;
+            border-radius: 2px;
+            overflow: hidden;
+            display: none;
+        }
+        .progress-bar {
+            height: 100%;
+            background: #4CAF50;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .upload-status {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div style="display: flex; justify-content: center; align-items: center; flex-direction: row; padding: 0; margin: -10%;">
+            <img src="files/OneStore.png" width="15%">
+            <p class="pacroy" style="font-size: 40px; margin-left: 5px;">OneStore</p>
+        </div>
+        <hr>
+        <button onclick="showFiles()">Files</button><!-- 
+        <button onclick="showVault()">OneVault</button>
+        <button onclick="resetTOTP()">Reset TOTP</button> -->
+    </nav>
+
+    <div class="content">
+        <div id="file-explorer">
+            <div class="path-bar" id="path-bar"></div>
+
+            <div class="upload-area" id="upload-area">
+                <p>Drag and drop files here to upload</p>
+                <div class="upload-progress">
+                    <div class="progress-bar"></div>
+                </div>
+                <div class="upload-status"></div>
+            </div>
+
+            <div class="file-grid" id="file-grid"></div>
+        </div>
+
+        <div id="vault-login" class="vault-login">
+            <h2>Enter TOTP Code</h2>
+            <input type="text" class="vault-input" maxlength="6" placeholder="Enter code">
+            <button onclick="verifyVaultAccess()">Access Vault</button>
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        const path = require('path');
+
+        let currentPath = '';
+        let isVaultMode = false;
+
+        async function initializeFileSystem() {
+            const drives = await ipcRenderer.invoke('get-drives');
+            currentPath = drives[0];
+            await loadDirectory(currentPath);
+        }
+
+        async function loadDirectory(dirPath) {
+            try {
+                const items = await ipcRenderer.invoke('read-directory', dirPath);
+                currentPath = dirPath;
+                updatePathBar();
+                displayItems(items);
+            } catch (error) {
+                console.error('Error loading directory:', error);
+            }
+        }
+
+        function updatePathBar() {
+            const pathBar = document.getElementById('path-bar');
+            const segments = currentPath.split(path.sep);
+            pathBar.innerHTML = segments
+                .map((segment, index) => {
+                    const pathUpToHere = segments.slice(0, index + 1).join(path.sep);
+                    return `<span class="path-segment" onclick="loadDirectory('${pathUpToHere}')">${segment || 'Root'}</span>`;
+                })
+                .join(' > ');
+        }
+
+        function displayItems(items) {
+            const grid = document.getElementById('file-grid');
+            grid.innerHTML = '';
+
+            if (currentPath !== '') {
+                const upDir = document.createElement('div');
+                upDir.className = 'file-item';
+                upDir.innerHTML = `
+                    <div style="font-size: 40px;">⬆️</div>
+                    <div>Up</div>
+                `;
+                upDir.onclick = () => loadDirectory(path.dirname(currentPath));
+                grid.appendChild(upDir);
+            }
+
+            items.forEach(item => {
+                const element = document.createElement('div');
+                element.className = 'file-item';
+                element.innerHTML = `
+                    <div style="font-size: 40px;">${item.isDirectory ? '📁' : '📄'}</div>
+                    <div>${item.name}</div>
+                `;
+                element.onclick = () => {
+                    if (item.isDirectory) {
+                        loadDirectory(item.path);
+                    } else {
+                        ipcRenderer.invoke('open-file', item.path);
+                    }
+                };
+                grid.appendChild(element);
+            });
+        }
+
+        function showFiles() {
+            isVaultMode = false;
+            document.getElementById('file-explorer').style.display = 'block';
+            document.getElementById('vault-login').style.display = 'none';
+            loadDirectory(currentPath);
+        }
+
+        async function showVault() {
+            document.getElementById('file-explorer').style.display = 'none';
+            document.getElementById('vault-login').style.display = 'flex';
+        }
+
+        async function verifyVaultAccess() {
+            const code = document.querySelector('.vault-input').value;
+            const isValid = await ipcRenderer.invoke('verify-totp', code);
+
+            if (isValid) {
+                isVaultMode = true;
+                document.getElementById('vault-login').style.display = 'none';
+                document.getElementById('file-explorer').style.display = 'block';
+
+                const vaultPath = await ipcRenderer.invoke('get-vault-directory', currentPath);
+                if (vaultPath) {
+                    loadDirectory(vaultPath);
+                }
+            } else {
+                alert('Invalid code. Please try again.');
+            }
+        }
+
+        function resetTOTP() {
+            if (confirm('Are you sure you want to reset TOTP? This will require re-setup.')) {
+                ipcRenderer.send('reset-totp');
+            }
+        }
+
+        const uploadArea = document.getElementById('upload-area');
+        const progressBar = document.querySelector('.progress-bar');
+        const uploadStatus = document.querySelector('.upload-status');
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+
+            const files = e.dataTransfer.files;
+
+            document.querySelector('.upload-progress').style.display = 'block';
+            uploadStatus.textContent = 'Uploading files...';
+
+            try {
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+
+                    const progress = ((i + 1) / files.length) * 100;
+                    progressBar.style.width = `${progress}%`;
+
+                    const result = await ipcRenderer.invoke('upload-file', {
+                        filePath: file.path,
+                        targetDir: currentPath,
+                        isVault: isVaultMode
+                    });
+
+                    if (!result.success) {
+                        throw new Error(`Failed to upload ${file.name}: ${result.error}`);
+                    }
+                }
+
+                uploadStatus.textContent = 'Upload complete!';
+                setTimeout(() => {
+                    document.querySelector('.upload-progress').style.display = 'none';
+                    uploadStatus.textContent = '';
+                    progressBar.style.width = '0%';
+                }, 2000);
+
+                await loadDirectory(currentPath);
+
+            } catch (error) {
+                console.error('Upload error:', error);
+                uploadStatus.textContent = `Error: ${error.message}`;
+                progressBar.style.backgroundColor = '#f44336';
+            }
+        });
+
+        initializeFileSystem();
+    </script>
+</body>
+</html>
